@@ -1,0 +1,38 @@
+---
+name: lint
+
+on: [push]
+
+jobs:
+  yamllint:
+    name: lint-yaml
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        cache: pip
+    - run: pip install yamllint==1.29.0
+    - run: yamllint .
+  tflint:
+    name: lint-terraform
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+    - uses: actions/cache@v3
+      name: Cache plugin dir
+      with:
+        path: ~/.tflint.d/plugins
+        key: tflint-${{ hashFiles('.tflint.hcl') }}
+    - uses: terraform-linters/setup-tflint@v3
+      name: Setup TFLint
+      with:
+        tflint_version: v0.44.1
+    - name: Init TFLint
+      run: tflint --init
+    - name: Run TFLint
+      run: tflint --module -f compact

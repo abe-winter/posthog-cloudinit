@@ -1,0 +1,63 @@
+# this sets up posthog
+# from their script at https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby
+# todo: how does this work with upgrading? https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/upgrade-hobby
+apt:
+  preserve_sources_list: true
+  sources:
+    docker:
+      source: "deb [arch=amd64] https://download.docker.com/linux/ubuntu $RELEASE stable"
+      key: |
+        ${indent(8, file("${path_module}/docker-repo.gpg"))}
+packages:
+- git
+- docker-ce
+write_files:
+- encoding: b64
+  content: ${filebase64("${path_module}/start.sh")}
+  path: /root/cloud-init/compose/start
+  permissions: '0555'
+- encoding: b64
+  content: ${filebase64("${path_module}/wait.py")}
+  path: /root/cloud-init/compose/wait
+  permissions: '0555'
+- path: /root/cloud-init/Caddyfile
+  # todo: add support for acme staging? why does upstream have that? rate limits?
+  content: |
+    ${DOMAIN}, :80, :443 {
+      reverse_proxy http://web:8000
+    }
+  permissions: '0444'
+- path: /root/cloud-init/.env
+  # note: version is for git, app-tag is for envsubst in docker-compose
+  # todo: find a way to use docker-compose secrets for secrets (if supported locally)
+  content: |
+    POSTHOG_SECRET=${POSTHOG_SECRET}
+    SENTRY_DSN=${SENTRY_DSN}
+    DOMAIN=${DOMAIN}
+    POSTHOG_VERSION=${POSTHOG_VERSION}
+    POSTHOG_APP_TAG=release-${POSTHOG_VERSION}
+  permissions: '0400'
+runcmd:
+- set -eux
+- mkdir -p /root/cloud-init
+- cd /root/cloud-init
+- echo running in $PWD
+- "docker-compose -f docker-compose.yml stop > /dev/null || true"
+# note: the error catch here is in case the repo already exists, but there are other possible errors
+- "git clone https://github.com/PostHog/posthog.git > /dev/null || true"
+- "cd posthog && git fetch && git checkout ${POSTHOG_VERSION} && cd .."
+- 'curl -L "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose'
+- chmod +x /usr/local/bin/docker-compose
+# - rm -f docker-compose.yml
+- cp posthog/docker-compose.base.yml docker-compose.base.yml
+- cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
+# allexport so .env are available in envsubst
+- set -o allexport
+# don't echo secrets
+- set +x
+- . ./.env
+- set -x
+- envsubst < docker-compose.yml.tmpl > docker-compose.yml
+# - rm docker-compose.yml.tmpl
+- docker-compose -f docker-compose.yml up --quiet-pull -d
+final_message: Docker compose is starting now
