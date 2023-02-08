@@ -15,7 +15,7 @@ jobs:
       with:
         python-version: '3.10'
         cache: pip
-    - run: pip install yamllint==1.29.0
+    - run: pip install -r requirements.txt
     - run: yamllint .
   tflint:
     name: lint-terraform
